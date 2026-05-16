@@ -38,21 +38,46 @@ class ClaudeSessionApp(rumps.App):
                 self.menu.add(self._session_item(s, running=True))
             self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("— Recent —", callback=None))
+
+        buckets: dict[str, list[sessions.Session]] = {}
         for s in recent:
-            self.menu.add(self._session_item(s, running=False))
+            buckets.setdefault(s.project_name, []).append(s)
+        # Sort project keys by newest mtime in each bucket (descending).
+        ordered_projects = sorted(buckets, key=lambda p: buckets[p][0].mtime, reverse=True)
+        for proj in ordered_projects:
+            items = buckets[proj]
+            parent = rumps.MenuItem(f"{proj} ({len(items)})")
+            for s in items:
+                parent.add(self._session_item(s, running=False, include_project=False))
+            self.menu.add(parent)
 
         self.menu.add(rumps.separator)
         self.menu.add(rumps.MenuItem("Refresh", callback=self._refresh))
         self.menu.add(rumps.MenuItem("Quit", callback=rumps.quit_application))
 
-    def _session_item(self, s: sessions.Session, running: bool) -> rumps.MenuItem:
-        proj = s.project_name
+    def _session_item(
+        self,
+        s: sessions.Session,
+        running: bool,
+        include_project: bool = True,
+    ) -> rumps.MenuItem:
         title = sessions.session_display_title(s, maxlen=48)
-        bullet = "● " if running else "  "
-        label = f"{bullet}[{proj}] {title}"
+        if running:
+            age = sessions.age_from_iso(s.end_ts)
+            label = f"● {age}  [{s.project_name}] {title}"
+        elif include_project:
+            label = f"  [{s.project_name}] {title}"
+        else:
+            label = title
         item = rumps.MenuItem(label, callback=self._on_session_click)
         item._sid = s.session_id  # type: ignore[attr-defined]
         item._cwd = s.cwd  # type: ignore[attr-defined]
+        tip = (s.last_prompt or s.first_prompt or "")[:400]
+        if tip:
+            try:
+                item._menuitem.setToolTip_(tip)
+            except Exception:
+                pass
         return item
 
     def _on_session_click(self, sender: rumps.MenuItem) -> None:
