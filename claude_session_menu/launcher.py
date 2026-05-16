@@ -1,17 +1,33 @@
 """Open new Ghostty windows or focus existing Ghostty/Terminal sessions."""
 from __future__ import annotations
 
+import datetime as dt
 import os
 import shlex
 import subprocess
 from pathlib import Path
 
 GHOSTTY_APP = "/Applications/Ghostty.app"
+LOG_PATH = Path.home() / "Library" / "Logs" / "claude-session-menu.log"
+
+
+def log_failure(context: str, msg: str) -> None:
+    """Append a failure line to ~/Library/Logs/claude-session-menu.log. Swallows
+    OSError so a logging failure can't crash the menu."""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(f"{dt.datetime.now().isoformat()}\t{context}\t{msg}\n")
+    except OSError:
+        pass
 
 
 def _resolve_claude_bin() -> str:
-    """Return absolute path to the claude binary. Search PATH-with-shell first since GUI
-    launches don't see user shell PATH."""
+    """Return absolute path to the claude binary. Search CLAUDE_BIN env first, then
+    common install locations, then a login-shell PATH lookup."""
+    env_bin = os.environ.get("CLAUDE_BIN")
+    if env_bin and Path(env_bin).exists():
+        return env_bin
     candidates = [
         Path.home() / ".claude" / "local" / "claude",
         Path("/opt/homebrew/bin/claude"),

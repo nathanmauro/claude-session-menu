@@ -62,12 +62,24 @@ class ClaudeSessionApp(rumps.App):
             return
         running = processes.find_running(sid)
         if running and running.terminal_pid:
-            launcher.focus_pid(running.terminal_pid)
+            ok, msg = launcher.focus_pid(running.terminal_pid)
+            self._report("focus_pid", ok, msg)
             return
         if running and running.terminal_app:
-            launcher.focus_app(running.terminal_app)
+            ok, msg = launcher.focus_app(running.terminal_app)
+            self._report("focus_app", ok, msg)
             return
-        launcher.open_new(cwd, sid)
+        ok, msg = launcher.open_new(cwd, sid)
+        self._report("open_new", ok, msg)
+
+    def _report(self, context: str, ok: bool, msg: str) -> None:
+        if ok:
+            return
+        launcher.log_failure(context, msg)
+        try:
+            rumps.notification(title="Claude session", subtitle=context, message=msg)
+        except Exception:
+            pass
 
     def _refresh(self, _: rumps.MenuItem) -> None:
         self._build_menu()

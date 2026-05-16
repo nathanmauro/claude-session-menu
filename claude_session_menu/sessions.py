@@ -1,14 +1,16 @@
-"""Enumerate Claude Code sessions from ~/.claude/projects/."""
+"""Enumerate Claude Code sessions from ~/.claude/projects/ or claude-dash SQLite."""
 from __future__ import annotations
 
 import datetime as dt
 import json
 import os
+import sqlite3
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterator
 
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
+DASH_DB = Path.home() / ".claude-dash" / "index.db"
 
 
 @dataclass
@@ -111,7 +113,51 @@ def parse_session_file(path: Path) -> Session | None:
     return sess
 
 
+def load_sessions_from_dash(db_path: Path = DASH_DB) -> list[Session] | None:
+    """Read session rows from the claude-dash SQLite index. Returns None on any
+    schema/availability issue so the caller can fall back to JSONL parsing."""
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        cur = conn.execute(
+            "SELECT session_id, project_dir, cwd, start_ts, end_ts, title, "
+            "first_prompt, last_prompt, user_msg_count, mtime, size "
+            "FROM sessions"
+        )
+        rows = cur.fetchall()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    out: list[Session] = []
+    for r in rows:
+        out.append(
+            Session(
+                session_id=r[0],
+                project_dir=r[1] or "",
+                cwd=r[2] or "",
+                path="",
+                mtime=float(r[9] or 0.0),
+                size=int(r[10] or 0),
+                start_ts=r[3],
+                end_ts=r[4],
+                title=r[5],
+                first_prompt=r[6],
+                last_prompt=r[7],
+                user_msg_count=int(r[8] or 0),
+            )
+        )
+    return out
+
+
 def list_sessions(projects_dir: Path = PROJECTS_DIR) -> list[Session]:
+    if DASH_DB.exists():
+        rows = load_sessions_from_dash(DASH_DB)
+        if rows is not None:
+            rows.sort(key=lambda s: s.mtime, reverse=True)
+            return rows
     if not projects_dir.exists():
         return []
     out: list[Session] = []
@@ -121,6 +167,25 @@ def list_sessions(projects_dir: Path = PROJECTS_DIR) -> list[Session]:
             out.append(s)
     out.sort(key=lambda s: s.mtime, reverse=True)
     return out
+
+
+def age_from_iso(iso_ts: str | None) -> str:
+    """Compact age string from an ISO-8601 timestamp."""
+    if not iso_ts:
+        return "-"
+    try:
+        ts = dt.datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
+    except ValueError:
+        return "-"
+    delta = dt.datetime.now(dt.timezone.utc) - ts
+    secs = int(delta.total_seconds())
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        return f"{secs // 60}m"
+    if secs < 86400:
+        return f"{secs // 3600}h"
+    return f"{secs // 86400}d"
 
 
 def iter_session_paths(projects_dir: Path = PROJECTS_DIR) -> Iterator[Path]:

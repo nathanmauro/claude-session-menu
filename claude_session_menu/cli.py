@@ -2,29 +2,11 @@
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import json
 import sys
 
 from claude_session_menu import launcher, processes, sessions
-
-
-def _fmt_age(iso_ts: str | None) -> str:
-    if not iso_ts:
-        return "-"
-    try:
-        ts = dt.datetime.fromisoformat(iso_ts.replace("Z", "+00:00"))
-    except ValueError:
-        return "-"
-    delta = dt.datetime.now(dt.timezone.utc) - ts
-    secs = int(delta.total_seconds())
-    if secs < 60:
-        return f"{secs}s"
-    if secs < 3600:
-        return f"{secs // 60}m"
-    if secs < 86400:
-        return f"{secs // 3600}h"
-    return f"{secs // 86400}d"
+from claude_session_menu.sessions import age_from_iso
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -41,7 +23,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         return 0
     print(f"{'AGE':>5}  {'RUN':<3}  {'PROJECT':<24}  {'TITLE':<60}  SESSION_ID")
     for s in items[: args.limit]:
-        age = _fmt_age(s.end_ts)
+        age = age_from_iso(s.end_ts)
         run = "yes" if s.session_id in running_ids else ""
         proj = s.project_name[:24]
         title = sessions.session_display_title(s, maxlen=60)
